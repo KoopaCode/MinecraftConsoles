@@ -96,6 +96,44 @@ wchar_t g_Win64UsernameW[17] = { 0 };
 // Fullscreen toggle state
 static bool g_isFullscreen = false;
 static WINDOWPLACEMENT g_wpPrev = { sizeof(g_wpPrev) };
+extern HWND g_hWnd;
+static void SaveFullscreenOption(bool fullscreen);
+
+static bool IsWindowBorderlessFullscreen(HWND hWnd)
+{
+	if (hWnd == NULL)
+		return false;
+
+	DWORD dwStyle = GetWindowLong(hWnd, GWL_STYLE);
+	if (dwStyle & WS_OVERLAPPEDWINDOW)
+		return false;
+
+	RECT windowRect = {};
+	if (!GetWindowRect(hWnd, &windowRect))
+		return false;
+
+	MONITORINFO mi = { sizeof(mi) };
+	if (!GetMonitorInfo(MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST), &mi))
+		return false;
+
+	return EqualRect(&windowRect, &mi.rcMonitor) != 0;
+}
+
+static void PersistFullscreenStateIfChanged()
+{
+	static bool s_hasSavedState = false;
+	static bool s_lastSavedState = false;
+
+	const bool currentState = IsWindowBorderlessFullscreen(g_hWnd);
+	g_isFullscreen = currentState;
+
+	if (!s_hasSavedState || s_lastSavedState != currentState)
+	{
+		SaveFullscreenOption(currentState);
+		s_lastSavedState = currentState;
+		s_hasSavedState = true;
+	}
+}
 
 //--------------------------------------------------------------------------------------
 // Update the Aspect Ratio to support Any Aspect Ratio
@@ -911,8 +949,11 @@ void Render()
 //--------------------------------------------------------------------------------------
 void ToggleFullscreen()
 {
+	const bool isFullscreenNow = IsWindowBorderlessFullscreen(g_hWnd);
+	g_isFullscreen = isFullscreenNow;
+
 	DWORD dwStyle = GetWindowLong(g_hWnd, GWL_STYLE);
-	if (!g_isFullscreen)
+	if (!isFullscreenNow)
 	{
 		MONITORINFO mi = { sizeof(mi) };
 		if (GetWindowPlacement(g_hWnd, &g_wpPrev) &&
@@ -933,8 +974,8 @@ void ToggleFullscreen()
 		SetWindowPos(g_hWnd, NULL, 0, 0, 0, 0,
 			SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
 	}
-	g_isFullscreen = !g_isFullscreen;
-	SaveFullscreenOption(g_isFullscreen);
+
+	g_isFullscreen = IsWindowBorderlessFullscreen(g_hWnd);
 
 	if (g_KBMInput.IsWindowFocused())
 		g_KBMInput.SetWindowFocused(true);
@@ -1620,6 +1661,8 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 		{
 			ToggleFullscreen();
 		}
+
+		PersistFullscreenStateIfChanged();
 
 		// TAB opens game info menu. - Vvis :3 - Updated by detectiveren
 		if (g_KBMInput.IsKeyPressed(VK_TAB) && !ui.GetMenuDisplayed(0))
